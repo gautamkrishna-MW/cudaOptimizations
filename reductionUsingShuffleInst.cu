@@ -14,30 +14,23 @@ __global__ void reductionKernel(float* inpArr, size_t inpSize, float *outputVal)
 
     // Shuffle instructions
     size_t warpSize = 32;
-    float value = inpArr[gTIdx];
-
-    // No chance of thread divergence as warps with 'full-data' satisfy if-condition.
-    if (gTIdx < (warpSize * (inpSize / warpSize)))
-    {
-        for (int i = warpSize / 2; i > 0; i = i / 2)
-        {
-            value += __shfl_down_sync(-1, value, i);
-        }
-    }
-    // Warps with partial number of threads dealing with data are sent into else-condition.
-    else
-    {
-        int remNum = inpSize % warpSize;
-        for (int i = 1; i < remNum; i = i * 2)
-        {
-            float tempValue = __shfl_down_sync(-1, value, i);
-            if ((tIdx % warpSize) < (remNum - 1))
-                value += tempValue;
-        }
+    int value = inpArr[gTIdx];
+    int num_elements = inpSize;
+    
+    int num_elements_fullwarp = (warpSize * (num_elements / warpSize));
+    int num_elements_rem = num_elements - num_elements_fullwarp;
+    
+    unsigned int mask_rem = ((1U << num_elements_rem) - 1);
+    unsigned int mask = (gTIdx < num_elements_fullwarp) ? -1 : mask_rem;
+    
+    int tmpVal;
+    for (int i = warpSize / 2; i > 0; i = i / 2) {
+        tmpVal = __shfl_down_sync(mask, value, i);
+        value += tmpVal;
     }
     
     if (tIdx % warpSize == 0)
-        atomicAdd(outputVal, value);
+        atomicAdd(outputVal, value);    
 }
 
 #define NUMEL 5000
